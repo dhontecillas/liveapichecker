@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -53,38 +54,12 @@ func main() {
 		fmt.Printf("\nerror in provided spec:\n%s\n", err.Error())
 		return
 	}
-	fmt.Printf("\n\nspec:\n")
-
-	// ops := specDoc.Analyzer.Operations()
-
-	// MOVE: this shit inside NewParallelHandler
-	pMatcher := NewPathMatcher()
-	/*
-		paths = specDoc.Analyzer.AllPaths()
-			for k, v := range paths {
-				fmt.Printf("%s -> %#v\n\n", k, v)
-				for _, pi := range v.PathItemProps {
-					if
-				}
-			}
-	*/
-	ops := specDoc.Analyzer.Operations()
-	for method, mops := range ops {
-		for path, op := range mops {
-			fmt.Printf("%s %s -> %#v\n\n", method, path, op)
-			pMatcher.AddRoute(method, path)
-		}
-	}
-	pMatcher.Build()
-
-	testMatch := pMatcher.LookupRoute("GET", "/recipients/foo")
-	fmt.Printf("TMatch: %s\n", testMatch)
 
 	proxyH := NewProxyHandler()
 	parallelH := NewParallelHandler(proxyH, specDoc)
 	parallelH.LaunchParallelProc()
 
-	//		launchServer(parallelH)
+	launchServer(parallelH)
 }
 
 type ProxyHandler struct {
@@ -106,12 +81,34 @@ type ParallelHandler struct {
 	parallelProc        chan *ResponseWriterRecorder
 
 	specDoc *loads.Document
+
+	pathMatcher *PathMatcher
+	basePath    string
 }
 
 func NewParallelHandler(h http.Handler, specDoc *loads.Document) (p *ParallelHandler) {
+	bp := path.Clean(specDoc.BasePath())
+	if len(bp) > 0 && bp[len(bp)-1] == '/' {
+		bp = bp[:len(bp)-1]
+	}
+	fmt.Printf("HOST: %s\n", specDoc.Host())
+	fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
+
+	pMatcher := NewPathMatcher()
+	ops := specDoc.Analyzer.Operations()
+	for method, mops := range ops {
+		for rePath, _ := range mops {
+			routePath := path.Join(bp, rePath)
+			fmt.Printf("%s %s (bp: %s , p: %s)\n", method, routePath, bp, rePath)
+			pMatcher.AddRoute(method, routePath)
+		}
+	}
+	pMatcher.Build()
 	return &ParallelHandler{
-		handler: h,
-		specDoc: specDoc,
+		handler:     h,
+		specDoc:     specDoc,
+		pathMatcher: pMatcher,
+		basePath:    bp,
 	}
 }
 
@@ -141,7 +138,14 @@ func (p *ParallelHandler) LaunchParallelProc() {
 
 func (p *ParallelHandler) Analyze(rwr *ResponseWriterRecorder) {
 	fmt.Printf("\nanalizing request\n")
-	fmt.Printf("rwr %#v\n", rwr)
+
+	reqPath := path.Clean(rwr.req.URL.Path)
+	matchPath := p.pathMatcher.LookupRoute(rwr.req.Method, reqPath)
+	if len(matchPath) == 0 {
+		fmt.Printf("No matching path for: %s\n", reqPath)
+		return
+	}
+	fmt.Printf("MATCHED %s -> %s\n", matchPath, reqPath)
 
 }
 
@@ -205,13 +209,16 @@ func (pm *PathMatcher) AddRoute(method, path string) {
 }
 
 func (pm *PathMatcher) LookupRoute(method, pathWithParams string) string {
+	method = strings.ToUpper(method)
 	r, ok := pm.routers[method]
 	if !ok {
+		fmt.Printf("routers %#v\n", pm.routers)
 		return ""
 	}
 	res, params, found := r.Lookup(pathWithParams)
 	if !found {
-		fmt.Printf("Lookup NOT found\n")
+		fmt.Printf("Lookup NOT found: %s -> %s, %#v, %t\n%#v\n",
+			pathWithParams, res, params, found, pm.routers[method])
 		return ""
 	}
 	fmt.Printf("Lookup Params:\n%#v\n", params)
