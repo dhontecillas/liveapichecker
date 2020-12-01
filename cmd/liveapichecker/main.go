@@ -1,20 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"path"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
 	"github.com/spf13/viper"
 
 	"github.com/go-openapi/loads"
-	"github.com/go-openapi/runtime/middleware/denco"
 	/*
 		"github.com/go-openapi/analysis"
 		"github.com/go-openapi/errors"
@@ -55,7 +55,7 @@ func main() {
 		return
 	}
 
-	proxyH := NewProxyHandler()
+	proxyH := NewProxyHandler(forwardURL)
 	parallelH := NewParallelHandler(proxyH, specDoc)
 	parallelH.LaunchParallelProc()
 
@@ -63,15 +63,57 @@ func main() {
 }
 
 type ProxyHandler struct {
+	forwardURL string
+	client     *http.Client
 }
 
-func NewProxyHandler() *ProxyHandler {
-	return &ProxyHandler{}
+func NewProxyHandler(forwardURL string) *ProxyHandler {
+	return &ProxyHandler{
+		forwardURL: forwardURL,
+		client:     &http.Client{},
+	}
 }
 
 func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// just write the success header for now
-	rw.Write(([]byte)("{\"success\": true}"))
+	// c := context.Background()
+	fmt.Printf("forwarding request\n")
+	nr, err := http.NewRequest(req.Method, req.URL.String(), req.Body)
+	if err != nil {
+		fmt.Printf("error creating request: %s\n", err.Error())
+		return
+	}
+	// TODO: check the error
+	nr.Host = ph.forwardURL
+	nr.URL.Scheme = "http"
+	nr.URL.Host = ph.forwardURL
+
+	for key, slc := range req.Header {
+		nr.Header[key] = make([]string, len(slc))
+		copy(nr.Header[key], slc)
+	}
+
+	res, err := ph.client.Do(nr)
+	if err != nil {
+		fmt.Printf("error proxying the request: %s\n", err.Error())
+		rw.WriteHeader(500)
+		return
+	}
+	dstH := rw.Header()
+	// srcH := res.Header
+	for key, slc := range res.Header {
+		dstH[key] = make([]string, len(slc))
+		copy(dstH[key], slc)
+	}
+	rw.WriteHeader(res.StatusCode)
+
+	var buf []byte
+	if res.ContentLength >= 0 {
+		buf = make([]byte, 0, res.ContentLength)
+	}
+	b := bytes.NewBuffer(buf)
+	b.ReadFrom(res.Body)
+	rw.Write(b.Bytes())
 }
 
 type ParallelHandler struct {
@@ -82,7 +124,7 @@ type ParallelHandler struct {
 
 	specDoc *loads.Document
 
-	pathMatcher *PathMatcher
+	pathMatcher *pathmatcher.PathMatcher
 	basePath    string
 }
 
@@ -94,7 +136,7 @@ func NewParallelHandler(h http.Handler, specDoc *loads.Document) (p *ParallelHan
 	fmt.Printf("HOST: %s\n", specDoc.Host())
 	fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
 
-	pMatcher := NewPathMatcher()
+	pMatcher := pathmatcher.NewPathMatcher()
 	ops := specDoc.Analyzer.Operations()
 	for method, mops := range ops {
 		for rePath, _ := range mops {
@@ -152,7 +194,7 @@ func (p *ParallelHandler) Analyze(rwr *ResponseWriterRecorder) {
 func launchServer(hfn http.Handler) {
 	srv := &http.Server{
 		// TODO: load this from config:
-		Addr:    "localhost:9876",
+		Addr:    "0.0.0.0:7777",
 		Handler: hfn,
 	}
 
@@ -185,55 +227,4 @@ type ReqResp struct {
 
 func openapiChecker() {
 	select {}
-}
-
-type PathMatcher struct {
-	pathConverter *regexp.Regexp
-	records       map[string][]denco.Record
-	routers       map[string]*denco.Router
-}
-
-func NewPathMatcher() *PathMatcher {
-	pathConverter := regexp.MustCompile(`{(.+?)}([^/]*)`)
-	return &PathMatcher{
-		pathConverter: pathConverter,
-		records:       make(map[string][]denco.Record),
-	}
-}
-
-func (pm *PathMatcher) AddRoute(method, path string) {
-	mn := strings.ToUpper(method)
-	conv := pm.pathConverter.ReplaceAllString(path, ":$1")
-	record := denco.NewRecord(conv, path)
-	pm.records[mn] = append(pm.records[mn], record)
-}
-
-func (pm *PathMatcher) LookupRoute(method, pathWithParams string) string {
-	method = strings.ToUpper(method)
-	r, ok := pm.routers[method]
-	if !ok {
-		fmt.Printf("routers %#v\n", pm.routers)
-		return ""
-	}
-	res, params, found := r.Lookup(pathWithParams)
-	if !found {
-		fmt.Printf("Lookup NOT found: %s -> %s, %#v, %t\n%#v\n",
-			pathWithParams, res, params, found, pm.routers[method])
-		return ""
-	}
-	fmt.Printf("Lookup Params:\n%#v\n", params)
-	str, ok := res.(string)
-	if !ok {
-		return ""
-	}
-	return str
-}
-
-func (pm *PathMatcher) Build() {
-	pm.routers = make(map[string]*denco.Router)
-	for method, records := range pm.records {
-		router := denco.New()
-		_ = router.Build(records)
-		pm.routers[method] = router
-	}
 }
