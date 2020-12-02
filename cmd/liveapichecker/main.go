@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
+	"github.com/dhontecillas/liveapichecker/pkg/proxy"
 	"github.com/spf13/viper"
 
 	"github.com/go-openapi/loads"
@@ -55,65 +55,11 @@ func main() {
 		return
 	}
 
-	proxyH := NewProxyHandler(forwardURL)
+	proxyH := proxy.NewProxyHandler(forwardURL)
 	parallelH := NewParallelHandler(proxyH, specDoc)
 	parallelH.LaunchParallelProc()
 
 	launchServer(parallelH)
-}
-
-type ProxyHandler struct {
-	forwardURL string
-	client     *http.Client
-}
-
-func NewProxyHandler(forwardURL string) *ProxyHandler {
-	return &ProxyHandler{
-		forwardURL: forwardURL,
-		client:     &http.Client{},
-	}
-}
-
-func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	// just write the success header for now
-	// c := context.Background()
-	fmt.Printf("forwarding request\n")
-	nr, err := http.NewRequest(req.Method, req.URL.String(), req.Body)
-	if err != nil {
-		fmt.Printf("error creating request: %s\n", err.Error())
-		return
-	}
-	// TODO: check the error
-	nr.Host = ph.forwardURL
-	nr.URL.Scheme = "http"
-	nr.URL.Host = ph.forwardURL
-
-	for key, slc := range req.Header {
-		nr.Header[key] = make([]string, len(slc))
-		copy(nr.Header[key], slc)
-	}
-
-	res, err := ph.client.Do(nr)
-	if err != nil {
-		fmt.Printf("error proxying the request: %s\n", err.Error())
-		rw.WriteHeader(500)
-		return
-	}
-	dstH := rw.Header()
-	// srcH := res.Header
-	for key, slc := range res.Header {
-		dstH[key] = make([]string, len(slc))
-		copy(dstH[key], slc)
-	}
-	rw.WriteHeader(res.StatusCode)
-
-	var buf []byte
-	if res.ContentLength >= 0 {
-		buf = make([]byte, 0, res.ContentLength)
-	}
-	b := bytes.NewBuffer(buf)
-	b.ReadFrom(res.Body)
-	rw.Write(b.Bytes())
 }
 
 type ParallelHandler struct {
