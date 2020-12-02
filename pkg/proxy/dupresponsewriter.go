@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"net/http"
@@ -60,42 +60,4 @@ func (drw *DupResponseWriter) setHeaders() {
 		aH[k] = acs
 		bH[k] = bcs
 	}
-}
-
-type ResponseWriterRecorder struct {
-	statusCode int
-	headers    http.Header
-	data       []byte
-
-	req         *http.Request
-	onWriteChan chan<- *ResponseWriterRecorder
-}
-
-func NewResponseWriterRecorder(req *http.Request, onWriteChan chan<- *ResponseWriterRecorder) *ResponseWriterRecorder {
-	return &ResponseWriterRecorder{
-		headers:     make(http.Header),
-		req:         req,
-		onWriteChan: onWriteChan,
-	}
-}
-
-func (rwr *ResponseWriterRecorder) Header() http.Header {
-	return rwr.headers
-}
-
-func (rwr *ResponseWriterRecorder) Write(data []byte) (int, error) {
-	// WriteHeader only writes the header if it has not been
-	// previously written
-	rwr.WriteHeader(http.StatusOK)
-	rwr.data = make([]byte, len(data))
-	copy(rwr.data, data)
-	rwr.onWriteChan <- rwr
-	return len(data), nil
-}
-
-func (rwr *ResponseWriterRecorder) WriteHeader(statusCode int) {
-	if rwr.statusCode != 0 {
-		return
-	}
-	rwr.statusCode = statusCode
 }

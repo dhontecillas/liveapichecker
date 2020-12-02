@@ -6,11 +6,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path"
 	"strings"
 	"time"
 
-	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
+	"github.com/dhontecillas/liveapichecker/pkg/analyzer"
 	"github.com/dhontecillas/liveapichecker/pkg/proxy"
 	"github.com/spf13/viper"
 
@@ -55,86 +54,13 @@ func main() {
 		return
 	}
 
+	covChecker := analyzer.NewCoverageChecker(specDoc)
+
 	proxyH := proxy.NewProxyHandler(forwardURL)
-	parallelH := NewParallelHandler(proxyH, specDoc)
+	parallelH := proxy.NewParallelHandler(proxyH, covChecker)
 	parallelH.LaunchParallelProc()
 
 	launchServer(parallelH)
-}
-
-type ParallelHandler struct {
-	handler http.Handler
-
-	parallelProcRunning bool
-	parallelProc        chan *ResponseWriterRecorder
-
-	specDoc *loads.Document
-
-	pathMatcher *pathmatcher.PathMatcher
-	basePath    string
-}
-
-func NewParallelHandler(h http.Handler, specDoc *loads.Document) (p *ParallelHandler) {
-	bp := path.Clean(specDoc.BasePath())
-	if len(bp) > 0 && bp[len(bp)-1] == '/' {
-		bp = bp[:len(bp)-1]
-	}
-	fmt.Printf("HOST: %s\n", specDoc.Host())
-	fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
-
-	pMatcher := pathmatcher.NewPathMatcher()
-	ops := specDoc.Analyzer.Operations()
-	for method, mops := range ops {
-		for rePath, _ := range mops {
-			routePath := path.Join(bp, rePath)
-			fmt.Printf("%s %s (bp: %s , p: %s)\n", method, routePath, bp, rePath)
-			pMatcher.AddRoute(method, routePath)
-		}
-	}
-	pMatcher.Build()
-	return &ParallelHandler{
-		handler:     h,
-		specDoc:     specDoc,
-		pathMatcher: pMatcher,
-		basePath:    bp,
-	}
-}
-
-func (p *ParallelHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	clonedReq := req.Clone(req.Context())
-	recRW := NewResponseWriterRecorder(clonedReq, p.parallelProc)
-	dupRW := NewDupResponseWriter(rw, recRW)
-	p.handler.ServeHTTP(dupRW, req)
-}
-
-func (p *ParallelHandler) LaunchParallelProc() {
-	if p.parallelProc != nil {
-		return
-	}
-
-	p.parallelProc = make(chan *ResponseWriterRecorder)
-	go func() {
-		// var r *ResponseWriterRecorder
-		for {
-			select {
-			case r := <-p.parallelProc:
-				p.Analyze(r)
-			}
-		}
-	}()
-}
-
-func (p *ParallelHandler) Analyze(rwr *ResponseWriterRecorder) {
-	fmt.Printf("\nanalizing request\n")
-
-	reqPath := path.Clean(rwr.req.URL.Path)
-	matchPath := p.pathMatcher.LookupRoute(rwr.req.Method, reqPath)
-	if len(matchPath) == 0 {
-		fmt.Printf("No matching path for: %s\n", reqPath)
-		return
-	}
-	fmt.Printf("MATCHED %s -> %s\n", matchPath, reqPath)
-
 }
 
 func launchServer(hfn http.Handler) {
