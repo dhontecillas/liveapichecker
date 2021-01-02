@@ -8,7 +8,8 @@ been called along with its responses.
 The live API checker gets an OpenAPI 2.0 spec as input, and
 spins up a proxy server that records the request / responses
 to check which endpoints are called along with responses to
-keep track of the coverage.
+keep track of the coverage, and generates a json report
+on proxy shutdown.
 
 The main purpose is to keep track of the coverage of API
 end to end tests.
