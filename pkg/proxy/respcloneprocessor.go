@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-type RecordedResponseProcessorFn func(rwr *ResponseWriterRecorder)
+// type RecordedResponseProcessorFn func(rwr *ResponseWriterRecorder)
 
 type RecordedResponseProcessorHandler interface {
 	ProcessRecordedResponse(rwr *ResponseWriterRecorder)
@@ -13,12 +13,12 @@ type RecordedResponseProcessorHandler interface {
 type ParallelHandler struct {
 	handler             http.Handler
 	parallelProcRunning bool
-	parallelProc        chan *proxy.ResponseWriterRecorder
-	respProcessor       RecordedResponseProcessor
+	parallelProc        chan *ResponseWriterRecorder
+	respProcessor       RecordedResponseProcessorHandler
 }
 
 func NewParallelHandler(h http.Handler,
-	recRespProcessor RecordedResponseProcessor) (p *ParallelHandler) {
+	recRespProcessor RecordedResponseProcessorHandler) (p *ParallelHandler) {
 
 	return &ParallelHandler{
 		handler:       h,
@@ -32,7 +32,7 @@ func (p *ParallelHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	p.handler.ServeHTTP(dupRW, req)
 
 	// send the recorded request / response to be processed
-	p.parallelProc <- dupRW
+	p.parallelProc <- recRW
 }
 
 func (p *ParallelHandler) LaunchParallelProc() {
@@ -42,7 +42,6 @@ func (p *ParallelHandler) LaunchParallelProc() {
 
 	p.parallelProc = make(chan *ResponseWriterRecorder)
 	go func() {
-		// var r *proxy.ResponseWriterRecorder
 		for {
 			select {
 			case r := <-p.parallelProc:

@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"os"
 	"path"
 
 	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
@@ -45,10 +46,35 @@ func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterReco
 	fmt.Printf("\nanalizing request\n")
 
 	reqPath := path.Clean(rwr.Req.URL.Path)
-	matchPath := p.pathMatcher.LookupRoute(rwr.Req.Method, reqPath)
+	matchPath := cc.pathMatcher.LookupRoute(rwr.Req.Method, reqPath)
 	if len(matchPath) == 0 {
 		fmt.Printf("No matching path for: %s\n", reqPath)
 		return
 	}
 	fmt.Printf("MATCHED %s -> %s\n", matchPath, reqPath)
+}
+
+func (cc *CoverageChecker) DumpResultsToFile(fileWithPath string) {
+	f, err := os.Create(fileWithPath)
+	if err != nil {
+		if os.IsExist(err) {
+			err = os.Remove(fileWithPath)
+			if err != nil {
+				fmt.Printf("cannot remove existing report file: %s", err.Error())
+				return
+			}
+			f, err = os.Create(fileWithPath)
+			if err != nil {
+				fmt.Printf("cannot create report file after removal: %s", err.Error())
+				return
+			}
+		} else {
+			fmt.Printf("cannot create report file: %s", err.Error())
+			return
+		}
+	}
+	defer f.Close()
+
+	f.WriteString("Report!")
+
 }

@@ -9,7 +9,7 @@ type ResponseWriterRecorder struct {
 	Req        *http.Request // reference to the original request
 	StatusCode int
 	Headers    http.Header
-	Data       *byte.Buffer
+	Data       *bytes.Buffer
 }
 
 func NewResponseWriterRecorder(req *http.Request,
@@ -21,7 +21,7 @@ func NewResponseWriterRecorder(req *http.Request,
 		Req:        clonedReq,
 		StatusCode: 0,
 		Headers:    make(http.Header),
-		Data:       new(Buffer),
+		Data:       new(bytes.Buffer),
 	}
 }
 
@@ -30,13 +30,9 @@ func (rwr *ResponseWriterRecorder) Header() http.Header {
 }
 
 func (rwr *ResponseWriterRecorder) Write(data []byte) (int, error) {
-	if writeFinished {
-		return nil, fmt.Errorf("Write finished")
-	}
 	// WriteHeader only writes the header if it has not been
 	// previously written
 	rwr.WriteHeader(http.StatusOK)
-	// TODO: perhaps we can use a bytes.Buffer ?
 	if rwr.Data == nil {
 		rwr.Data = bytes.NewBuffer(data)
 	} else {
@@ -46,8 +42,8 @@ func (rwr *ResponseWriterRecorder) Write(data []byte) (int, error) {
 }
 
 func (rwr *ResponseWriterRecorder) WriteHeader(statusCode int) {
-	if rwr.statusCode != 0 {
+	if rwr.StatusCode != 0 {
 		return
 	}
-	rwr.statusCode = statusCode
+	rwr.StatusCode = statusCode
 }

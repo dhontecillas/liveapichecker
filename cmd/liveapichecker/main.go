@@ -28,8 +28,10 @@ import (
 	*/)
 
 const (
-	OpenAPIFileKey string = "openapi.file"
-	ForwardURLKey  string = "forward.url"
+	OpenAPIFileKey     string = "liveapichecker.openapi.file"
+	ReportFileKey      string = "liveapichecker.report.file"
+	ForwardToKey       string = "liveapichecker.forward.to"
+	ForwardListenAtKey string = "liveapichecker.forward.listenat"
 )
 
 func main() {
@@ -42,11 +44,11 @@ func main() {
 		panic("cannot read OPENAPI_FILE filename")
 	}
 
-	forwardURL := v.GetString(ForwardURLKey)
-	if len(forwardURL) == 0 {
-		panic("cannot read forward url")
+	forwardTo := v.GetString(ForwardToKey)
+	if len(forwardTo) == 0 {
+		panic("cannot read forward to")
 	}
-	fmt.Printf("checking %s against %s\n", fileName, forwardURL)
+	fmt.Printf("checking %s against %s\n", fileName, forwardTo)
 
 	specDoc, err := loads.Spec(fileName)
 	if err != nil {
@@ -55,18 +57,32 @@ func main() {
 	}
 
 	covChecker := analyzer.NewCoverageChecker(specDoc)
+	var dumpCovFn func()
+	outFile := v.GetString(ReportFileKey)
+	if len(outFile) > 0 {
+		dumpCovFn = func() {
+			fmt.Printf("\ndumpCov called \n\n")
+			covChecker.DumpResultsToFile(outFile)
+		}
+		fmt.Printf("\ndumpCovFn is not null %#v\n", dumpCovFn)
+	} else {
+		fmt.Printf("\ndumpCovFn IS NULL %#v\n", dumpCovFn)
+	}
 
-	proxyH := proxy.NewProxyHandler(forwardURL)
+	proxyH := proxy.NewProxyHandler(forwardTo)
 	parallelH := proxy.NewParallelHandler(proxyH, covChecker)
 	parallelH.LaunchParallelProc()
 
-	launchServer(parallelH)
+	address := v.GetString(ForwardListenAtKey)
+	if len(address) == 0 {
+		address = "127.0.0.1:7777"
+	}
+	launchServer(parallelH, address, dumpCovFn)
 }
 
-func launchServer(hfn http.Handler) {
+func launchServer(hfn http.Handler, address string, postShutdownFn func()) {
 	srv := &http.Server{
-		// TODO: load this from config:
-		Addr:    "0.0.0.0:7777",
+		Addr:    address,
 		Handler: hfn,
 	}
 
@@ -78,6 +94,10 @@ func launchServer(hfn http.Handler) {
 		if err != http.ErrServerClosed {
 			fmt.Printf("error %s\nSHUTTING DOWN", err.Error())
 		}
+	}
+
+	if postShutdownFn != nil {
+		postShutdownFn()
 	}
 }
 
@@ -92,11 +112,4 @@ func shutdownServer(srv *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.Shutdown(ctx)
-}
-
-type ReqResp struct {
-}
-
-func openapiChecker() {
-	select {}
 }
