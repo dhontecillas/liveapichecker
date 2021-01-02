@@ -61,14 +61,9 @@ func main() {
 	outFile := v.GetString(ReportFileKey)
 	if len(outFile) > 0 {
 		dumpCovFn = func() {
-			fmt.Printf("\ndumpCov called \n\n")
 			covChecker.DumpResultsToFile(outFile)
 		}
-		fmt.Printf("\ndumpCovFn is not null %#v\n", dumpCovFn)
-	} else {
-		fmt.Printf("\ndumpCovFn IS NULL %#v\n", dumpCovFn)
 	}
-
 	proxyH := proxy.NewProxyHandler(forwardTo)
 	parallelH := proxy.NewParallelHandler(proxyH, covChecker)
 	parallelH.LaunchParallelProc()

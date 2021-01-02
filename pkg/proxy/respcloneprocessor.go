@@ -40,7 +40,7 @@ func (p *ParallelHandler) LaunchParallelProc() {
 		return
 	}
 
-	p.parallelProc = make(chan *ResponseWriterRecorder)
+	p.parallelProc = make(chan *ResponseWriterRecorder, 300)
 	go func() {
 		for {
 			select {
