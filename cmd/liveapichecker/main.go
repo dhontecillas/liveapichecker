@@ -6,11 +6,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path"
 	"strings"
 	"time"
 
-	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
+	"github.com/dhontecillas/liveapichecker/pkg/analyzer"
 	"github.com/dhontecillas/liveapichecker/pkg/proxy"
 	"github.com/spf13/viper"
 
@@ -29,8 +28,10 @@ import (
 	*/)
 
 const (
-	OpenAPIFileKey string = "openapi.file"
-	ForwardURLKey  string = "forward.url"
+	OpenAPIFileKey     string = "liveapichecker.openapi.file"
+	ReportFileKey      string = "liveapichecker.report.file"
+	ForwardToKey       string = "liveapichecker.forward.to"
+	ForwardListenAtKey string = "liveapichecker.forward.listenat"
 )
 
 func main() {
@@ -43,11 +44,11 @@ func main() {
 		panic("cannot read OPENAPI_FILE filename")
 	}
 
-	forwardURL := v.GetString(ForwardURLKey)
-	if len(forwardURL) == 0 {
-		panic("cannot read forward url")
+	forwardTo := v.GetString(ForwardToKey)
+	if len(forwardTo) == 0 {
+		panic("cannot read forward to")
 	}
-	fmt.Printf("checking %s against %s\n", fileName, forwardURL)
+	fmt.Printf("checking %s against %s\n", fileName, forwardTo)
 
 	specDoc, err := loads.Spec(fileName)
 	if err != nil {
@@ -55,92 +56,28 @@ func main() {
 		return
 	}
 
-	proxyH := proxy.NewProxyHandler(forwardURL)
-	parallelH := NewParallelHandler(proxyH, specDoc)
+	covChecker := analyzer.NewCoverageChecker(specDoc)
+	var dumpCovFn func()
+	outFile := v.GetString(ReportFileKey)
+	if len(outFile) > 0 {
+		dumpCovFn = func() {
+			covChecker.DumpResultsToFile(outFile)
+		}
+	}
+	proxyH := proxy.NewProxyHandler(forwardTo)
+	parallelH := proxy.NewParallelHandler(proxyH, covChecker)
 	parallelH.LaunchParallelProc()
 
-	launchServer(parallelH)
-}
-
-type ParallelHandler struct {
-	handler http.Handler
-
-	parallelProcRunning bool
-	parallelProc        chan *ResponseWriterRecorder
-
-	specDoc *loads.Document
-
-	pathMatcher *pathmatcher.PathMatcher
-	basePath    string
-}
-
-func NewParallelHandler(h http.Handler, specDoc *loads.Document) (p *ParallelHandler) {
-	bp := path.Clean(specDoc.BasePath())
-	if len(bp) > 0 && bp[len(bp)-1] == '/' {
-		bp = bp[:len(bp)-1]
+	address := v.GetString(ForwardListenAtKey)
+	if len(address) == 0 {
+		address = "127.0.0.1:7777"
 	}
-	fmt.Printf("HOST: %s\n", specDoc.Host())
-	fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
-
-	pMatcher := pathmatcher.NewPathMatcher()
-	ops := specDoc.Analyzer.Operations()
-	for method, mops := range ops {
-		for rePath, _ := range mops {
-			routePath := path.Join(bp, rePath)
-			fmt.Printf("%s %s (bp: %s , p: %s)\n", method, routePath, bp, rePath)
-			pMatcher.AddRoute(method, routePath)
-		}
-	}
-	pMatcher.Build()
-	return &ParallelHandler{
-		handler:     h,
-		specDoc:     specDoc,
-		pathMatcher: pMatcher,
-		basePath:    bp,
-	}
+	launchServer(parallelH, address, dumpCovFn)
 }
 
-func (p *ParallelHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	clonedReq := req.Clone(req.Context())
-	recRW := NewResponseWriterRecorder(clonedReq, p.parallelProc)
-	dupRW := NewDupResponseWriter(rw, recRW)
-	p.handler.ServeHTTP(dupRW, req)
-}
-
-func (p *ParallelHandler) LaunchParallelProc() {
-	if p.parallelProc != nil {
-		return
-	}
-
-	p.parallelProc = make(chan *ResponseWriterRecorder)
-	go func() {
-		// var r *ResponseWriterRecorder
-		for {
-			select {
-			case r := <-p.parallelProc:
-				p.Analyze(r)
-			}
-		}
-	}()
-}
-
-func (p *ParallelHandler) Analyze(rwr *ResponseWriterRecorder) {
-	fmt.Printf("\nanalizing request\n")
-
-	reqPath := path.Clean(rwr.req.URL.Path)
-	matchPath := p.pathMatcher.LookupRoute(rwr.req.Method, reqPath)
-	if len(matchPath) == 0 {
-		fmt.Printf("No matching path for: %s\n", reqPath)
-		return
-	}
-	fmt.Printf("MATCHED %s -> %s\n", matchPath, reqPath)
-
-}
-
-func launchServer(hfn http.Handler) {
+func launchServer(hfn http.Handler, address string, postShutdownFn func()) {
 	srv := &http.Server{
-		// TODO: load this from config:
-		Addr:    "0.0.0.0:7777",
+		Addr:    address,
 		Handler: hfn,
 	}
 
@@ -152,6 +89,10 @@ func launchServer(hfn http.Handler) {
 		if err != http.ErrServerClosed {
 			fmt.Printf("error %s\nSHUTTING DOWN", err.Error())
 		}
+	}
+
+	if postShutdownFn != nil {
+		postShutdownFn()
 	}
 }
 
@@ -166,11 +107,4 @@ func shutdownServer(srv *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.Shutdown(ctx)
-}
-
-type ReqResp struct {
-}
-
-func openapiChecker() {
-	select {}
 }

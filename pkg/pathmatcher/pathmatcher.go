@@ -8,6 +8,16 @@ import (
 	"github.com/go-openapi/runtime/middleware/denco"
 )
 
+type MatchedPath struct {
+	Method string
+	Path   string
+	Params map[string]string
+}
+
+func (mp *MatchedPath) Str() string {
+	return fmt.Sprintf("%s %s (%v)", mp.Method, mp.Path, mp.Params)
+}
+
 type PathMatcher struct {
 	pathConverter *regexp.Regexp
 	records       map[string][]denco.Record
@@ -29,25 +39,34 @@ func (pm *PathMatcher) AddRoute(method, path string) {
 	pm.records[mn] = append(pm.records[mn], record)
 }
 
-func (pm *PathMatcher) LookupRoute(method, pathWithParams string) string {
+func (pm *PathMatcher) LookupRoute(method, pathWithParams string) *MatchedPath {
 	method = strings.ToUpper(method)
 	r, ok := pm.routers[method]
 	if !ok {
 		fmt.Printf("routers %#v\n", pm.routers)
-		return ""
+		return nil
 	}
 	res, params, found := r.Lookup(pathWithParams)
 	if !found {
 		fmt.Printf("Lookup NOT found: %s -> %s, %#v, %t\n%#v\n",
 			pathWithParams, res, params, found, pm.routers[method])
-		return ""
+		return nil
 	}
 	fmt.Printf("Lookup Params:\n%#v\n", params)
 	str, ok := res.(string)
 	if !ok {
-		return ""
+		return nil
 	}
-	return str
+
+	mp := make(map[string]string, len(params))
+	for _, p := range params {
+		mp[p.Name] = mp[p.Value]
+	}
+	return &MatchedPath{
+		Method: method,
+		Path:   str,
+		Params: mp,
+	}
 }
 
 func (pm *PathMatcher) Build() {
