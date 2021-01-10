@@ -29,6 +29,21 @@ LIVEAPICHECKER_FORWARD_LISTENAT="locahost:7777"
 
 ## TODO
 
-- Check compliance with OpenAPI spec and emit report on mismatch
-- Take into account query params and check the coverage for those
-    params
+### Check compliance with OpenAPI spec and emit report on mismatch
+
+A part from checking the API codes, since we have the recorded
+response, we can check that matches the response spec.
+
+### Coverage of parameters
+
+Take into account query params and check the coverage for a set of
+different values. Is hard to determine the possible values for
+each param, so parameters can be provided to give a default number
+of diferent values that each type of param (string, numbers, ...)
+should check to give it a "coverage score".
+
+#### Combinations
+
+Problem with previous approach is that different combinations of
+params could have different effects on the endpoint, but the number
+of combinations can explode even with a low number of different inputs.
