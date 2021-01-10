@@ -25,12 +25,9 @@ func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	nr, err := http.NewRequestWithContext(req.Context(),
 		req.Method, req.URL.String(), req.Body)
 	if err != nil {
-		// TODO: log the error
-		// fmt.Printf("error creating request: %s\n", err.Error())
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
-	// TODO: check the error
 	nr.Host = ph.forwardURL
 	nr.URL.Scheme = ph.scheme
 	nr.URL.Host = ph.forwardURL
@@ -42,8 +39,6 @@ func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	res, err := ph.client.Do(nr)
 	if err != nil {
-		// TODO: log the error
-		// fmt.Printf("error proxying the request: %s\n", err.Error())
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}

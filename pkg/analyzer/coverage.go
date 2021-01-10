@@ -32,8 +32,6 @@ type EndpointCoverage struct {
 	Path                    string       `json:"path"`
 	StatusCodes             map[int]bool `json:"statusCodes"`
 	UndocumentedStatusCodes map[int]bool `json:"undocumentedStatusCodes"`
-	// TODO: we can have an analysis of the available params
-	// and check how those are covered
 }
 
 func NewEndpointCoverage(method string, path string) *EndpointCoverage {
