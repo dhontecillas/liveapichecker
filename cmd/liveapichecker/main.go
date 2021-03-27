@@ -14,24 +14,14 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/go-openapi/loads"
-	/*
-		"github.com/go-openapi/analysis"
-		"github.com/go-openapi/errors"
-		"github.com/go-openapi/loads"
-		"github.com/go-openapi/spec"
-		"github.com/go-openapi/strfmt"
-
-		"github.com/go-openapi/runtime"
-		"github.com/go-openapi/runtime/logger"
-		"github.com/go-openapi/runtime/middleware/untyped"
-		"github.com/go-openapi/runtime/security"
-	*/)
+)
 
 const (
-	OpenAPIFileKey     string = "liveapichecker.openapi.file"
-	ReportFileKey      string = "liveapichecker.report.file"
-	ForwardToKey       string = "liveapichecker.forward.to"
-	ForwardListenAtKey string = "liveapichecker.forward.listenat"
+	OpenAPIFileKey      string = "liveapichecker.openapi.file"
+	ReportFileKey       string = "liveapichecker.report.file"
+	ReportServerAddress string = "liveapichecker.report.server.address"
+	ForwardToKey        string = "liveapichecker.forward.to"
+	ForwardListenAtKey  string = "liveapichecker.forward.listenat"
 )
 
 func main() {
@@ -64,7 +54,18 @@ func main() {
 			covChecker.DumpResultsToFile(outFile)
 		}
 	}
-	proxyH := proxy.NewProxyHandler(forwardTo)
+	var reportsSrv *http.Server
+	reportsAddress := v.GetString(ReportServerAddress)
+	if len(reportsAddress) != 0 {
+		reportsSrv = analyzer.LaunchReportsServer(reportsAddress, covChecker)
+	}
+
+	proxyH, err := proxy.NewProxyHandler(forwardTo)
+	if err != nil {
+		fmt.Printf("cannot start proxy to forward to: %s -> %s\n",
+			forwardTo, err.Error())
+		return
+	}
 	parallelH := proxy.NewParallelHandler(proxyH, covChecker)
 	parallelH.LaunchParallelProc()
 
@@ -72,38 +73,42 @@ func main() {
 	if len(address) == 0 {
 		address = "127.0.0.1:7777"
 	}
-	launchServer(parallelH, address, dumpCovFn)
+	proxySrv := launchServer(parallelH, address)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	<-sigChan
+
+	shutdownServer(proxySrv)
+	shutdownServer(reportsSrv)
+
+	if dumpCovFn != nil {
+		fmt.Printf("post shutdown cleanup\n")
+		dumpCovFn()
+	}
 }
 
-func launchServer(hfn http.Handler, address string, postShutdownFn func()) {
+func launchServer(hfn http.Handler, address string) *http.Server {
 	srv := &http.Server{
 		Addr:    address,
 		Handler: hfn,
 	}
-
-	sigChan := make(chan os.Signal, 1)
-
-	go signalHandler(sigChan, srv)
-
-	if err := srv.ListenAndServe(); err != nil {
-		if err != http.ErrServerClosed {
-			fmt.Printf("error %s\nSHUTTING DOWN", err.Error())
+	go func() {
+		if err := srv.ListenAndServe(); err != nil {
+			if err == http.ErrServerClosed {
+				fmt.Printf("shutting down...\n")
+			} else {
+				fmt.Printf("error %s\nSHUTTING DOWN", err.Error())
+			}
 		}
-	}
-
-	if postShutdownFn != nil {
-		postShutdownFn()
-	}
-}
-
-func signalHandler(sc chan os.Signal, srv *http.Server) {
-	signal.Notify(sc, os.Interrupt)
-	<-sc
-	fmt.Printf("\nshutdown signal received\n")
-	shutdownServer(srv)
+	}()
+	return srv
 }
 
 func shutdownServer(srv *http.Server) {
+	if srv == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.Shutdown(ctx)

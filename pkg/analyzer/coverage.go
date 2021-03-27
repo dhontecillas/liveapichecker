@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
 	"github.com/dhontecillas/liveapichecker/pkg/proxy"
@@ -23,6 +24,7 @@ type CoverageChecker struct {
 	// covered is a map of path -> method -> status code -> covered
 	covered      map[string]map[string]*EndpointCoverage
 	allEndpoints []*EndpointCoverage
+	rwMutex      sync.RWMutex
 }
 
 // EndpointCoverage contains the information about
@@ -34,6 +36,7 @@ type EndpointCoverage struct {
 	UndocumentedStatusCodes map[int]bool `json:"undocumentedStatusCodes"`
 }
 
+// NewEndpointCoverage creates a new EndpontCoverage data
 func NewEndpointCoverage(method string, path string) *EndpointCoverage {
 	return &EndpointCoverage{
 		Method:                  method,
@@ -84,6 +87,8 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 	}
 }
 
+// ProcessRecordedResponse implements the RecordedRresponseProcessorHandler
+// interface, and updates the stats for received request
 func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterRecorder) {
 	fmt.Printf("\nanalizing request\n")
 
@@ -94,6 +99,8 @@ func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterReco
 		return
 	}
 	fmt.Printf("MATCHED %s -> %s\n", matchedPath.Str(), reqPath)
+	cc.rwMutex.Lock()
+	defer cc.rwMutex.Unlock()
 	e := cc.covered[matchedPath.Path][matchedPath.Method]
 	if _, ok := e.StatusCodes[rwr.StatusCode]; ok {
 		e.StatusCodes[rwr.StatusCode] = true
@@ -102,6 +109,30 @@ func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterReco
 	}
 }
 
+// DumpResultsToJsonString returns a report of the coverage as
+// a JSON serialized string
+func (cc *CoverageChecker) DumpResultsToJSONString() (string, error) {
+	type report struct {
+		Endpoints []*EndpointCoverage `json:"endpoints"`
+	}
+	var r report
+
+	cc.rwMutex.RLock()
+	for _, k := range cc.covered {
+		for _, j := range k {
+			r.Endpoints = append(r.Endpoints, j)
+		}
+	}
+	cc.rwMutex.RUnlock()
+
+	res, err := json.Marshal(r)
+	if err != nil {
+		return "", err
+	}
+	return string(res), nil
+}
+
+// DumpResultsToFile writes the collected coverage to a file
 func (cc *CoverageChecker) DumpResultsToFile(fileWithPath string) {
 	f, err := os.Create(fileWithPath)
 	if err != nil {
@@ -123,16 +154,7 @@ func (cc *CoverageChecker) DumpResultsToFile(fileWithPath string) {
 	}
 	defer f.Close()
 
-	type report struct {
-		Endpoints []*EndpointCoverage `json:"endpoints"`
-	}
-	var r report
-	for _, k := range cc.covered {
-		for _, j := range k {
-			r.Endpoints = append(r.Endpoints, j)
-		}
-	}
-	res, err := json.Marshal(r)
+	res, err := cc.DumpResultsToJSONString()
 	if err != nil {
 		fmt.Printf("cannot write report: %s", err.Error())
 		return

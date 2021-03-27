@@ -8,22 +8,27 @@ import (
 	"github.com/go-openapi/runtime/middleware/denco"
 )
 
+// MatchedPath contains the information of an endpoint matched
 type MatchedPath struct {
 	Method string
 	Path   string
 	Params map[string]string
 }
 
+// Str returns a representation of the endpoint called
 func (mp *MatchedPath) Str() string {
 	return fmt.Sprintf("%s %s (%v)", mp.Method, mp.Path, mp.Params)
 }
 
+// PathMatcher holds the data to match endpoint routes
+// with paths defined in the OpenAPI v2 format
 type PathMatcher struct {
 	pathConverter *regexp.Regexp
 	records       map[string][]denco.Record
 	routers       map[string]*denco.Router
 }
 
+// NewPathMatcher creates a new PathMatcher
 func NewPathMatcher() *PathMatcher {
 	pathConverter := regexp.MustCompile(`{(.+?)}([^/]*)`)
 	return &PathMatcher{
@@ -32,6 +37,8 @@ func NewPathMatcher() *PathMatcher {
 	}
 }
 
+// AddRoute adds an endpoint to be matched: method (http verb)
+// and path (in OpenAPI v2 format)
 func (pm *PathMatcher) AddRoute(method, path string) {
 	mn := strings.ToUpper(method)
 	conv := pm.pathConverter.ReplaceAllString(path, ":$1")
@@ -39,6 +46,8 @@ func (pm *PathMatcher) AddRoute(method, path string) {
 	pm.records[mn] = append(pm.records[mn], record)
 }
 
+// LookupRoute searches for an endpoint match in the PathMatcher
+// and returns it in case is found (otherwise, null is returned)
 func (pm *PathMatcher) LookupRoute(method, pathWithParams string) *MatchedPath {
 	method = strings.ToUpper(method)
 	r, ok := pm.routers[method]
@@ -52,7 +61,6 @@ func (pm *PathMatcher) LookupRoute(method, pathWithParams string) *MatchedPath {
 			pathWithParams, res, params, found, pm.routers[method])
 		return nil
 	}
-	fmt.Printf("Lookup Params:\n%#v\n", params)
 	str, ok := res.(string)
 	if !ok {
 		return nil
@@ -69,6 +77,7 @@ func (pm *PathMatcher) LookupRoute(method, pathWithParams string) *MatchedPath {
 	}
 }
 
+// Build must be called before any rouute can be looked up
 func (pm *PathMatcher) Build() {
 	pm.routers = make(map[string]*denco.Router)
 	for method, records := range pm.records {

@@ -3,34 +3,44 @@ package proxy
 import (
 	"bytes"
 	"net/http"
+	"net/url"
 )
 
+// ProxyHandler implements the http.Handler interface
 type ProxyHandler struct {
-	scheme     string
-	forwardURL string
-	client     *http.Client
+	scheme string
+	host   string
+	client *http.Client
 }
 
-func NewProxyHandler(forwardURL string) *ProxyHandler {
-	return &ProxyHandler{
-		scheme:     "http",
-		forwardURL: forwardURL,
-		client:     &http.Client{},
+// NewProxyHandler creates a new ProxyHandler with a url to
+// forward requests to
+func NewProxyHandler(forwardURL string) (*ProxyHandler, error) {
+	fwURL, err := url.Parse(forwardURL)
+	if err != nil {
+		return nil, err
 	}
+	return &ProxyHandler{
+		scheme: fwURL.Scheme,
+		host:   fwURL.Host,
+		client: &http.Client{},
+	}, nil
 }
 
+// ServeHTTP is the main handler for proxying requests.
+// Reads a request, creates a new one changing its Host
+// and Scheme to the configured ones, and then just
+// writes the response to the http.ResponseWriter
 func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	// just write the success header for now
-	// c := context.Background()
 	nr, err := http.NewRequestWithContext(req.Context(),
 		req.Method, req.URL.String(), req.Body)
 	if err != nil {
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
-	nr.Host = ph.forwardURL
+	nr.Host = ph.host
 	nr.URL.Scheme = ph.scheme
-	nr.URL.Host = ph.forwardURL
+	nr.URL.Host = ph.host
 
 	for key, slc := range req.Header {
 		nr.Header[key] = make([]string, len(slc))

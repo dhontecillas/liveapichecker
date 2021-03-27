@@ -4,6 +4,9 @@ import (
 	"net/http"
 )
 
+// DupResponseWriter is an http.ResponseWriter that just
+// writes response to two different http.ResponseWriter
+// that have been provided at construction time.
 type DupResponseWriter struct {
 	headers           http.Header
 	arw               http.ResponseWriter
@@ -11,6 +14,13 @@ type DupResponseWriter struct {
 	writeHeaderCalled bool
 }
 
+// NewDupResponseWriter creates a new DupResponseWriter
+// that will write to two provided ResponseWriter s.
+// The first response writer is treated as the main one,
+// and errors returned by it, will be the ones returned
+// by the created ResponseWriter, however, if an error
+// happens when writting to the second one, that would be
+// ignored.
 func NewDupResponseWriter(arw http.ResponseWriter, brw http.ResponseWriter) *DupResponseWriter {
 	return &DupResponseWriter{
 		headers: make(http.Header),
@@ -19,13 +29,19 @@ func NewDupResponseWriter(arw http.ResponseWriter, brw http.ResponseWriter) *Dup
 	}
 }
 
+// Header returns the headers written to the DupResponseWriter
 func (drw *DupResponseWriter) Header() http.Header {
 	return drw.headers
 }
 
+// Write writes data to both wrapped http.Response writers.
+// Headers will be written if that wasn't previously done.
+// If an error happend when writting to the primary wrapped
+// writer, that will be returned, and writting to the secondary
+// one won't be attempted. However, if it succeeds, the
+// write to the secondary is not checked for errors (so it
+// could fail silently).
 func (drw *DupResponseWriter) Write(data []byte) (int, error) {
-	// WriteHeader only writes the header if it has not been
-	// previously written
 	drw.WriteHeader(http.StatusOK)
 
 	a, errA := drw.arw.Write(data)
@@ -37,6 +53,8 @@ func (drw *DupResponseWriter) Write(data []byte) (int, error) {
 	return a, errA
 }
 
+// WriteHeader makes the headers to be written to both
+// wrapped http.ResponseWriter
 func (drw *DupResponseWriter) WriteHeader(statusCode int) {
 	if drw.writeHeaderCalled {
 		return
@@ -47,6 +65,8 @@ func (drw *DupResponseWriter) WriteHeader(statusCode int) {
 	drw.brw.WriteHeader(statusCode)
 }
 
+// setHeaders writes the current headers to both wrapped
+// http.ResponseWriter s
 func (drw *DupResponseWriter) setHeaders() {
 	aH := drw.arw.Header()
 	bH := drw.brw.Header()
