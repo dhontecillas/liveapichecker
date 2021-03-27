@@ -52,8 +52,10 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 	if len(bp) > 0 && bp[len(bp)-1] == '/' {
 		bp = bp[:len(bp)-1]
 	}
-	fmt.Printf("HOST: %s\n", specDoc.Host())
-	fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
+	/*
+		fmt.Printf("HOST: %s\n", specDoc.Host())
+		fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
+	*/
 
 	covered := make(map[string]map[string]*EndpointCoverage)
 	pMatcher := pathmatcher.NewPathMatcher()
