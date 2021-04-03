@@ -34,6 +34,7 @@ func NewProxyHandler(forwardURL string) (*ProxyHandler, error) {
 func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	nr, err := http.NewRequestWithContext(req.Context(),
 		req.Method, req.URL.String(), req.Body)
+
 	if err != nil {
 		rw.WriteHeader(http.StatusBadGateway)
 		return
@@ -41,6 +42,7 @@ func (ph *ProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	nr.Host = ph.host
 	nr.URL.Scheme = ph.scheme
 	nr.URL.Host = ph.host
+	nr.ContentLength = req.ContentLength
 
 	for key, slc := range req.Header {
 		nr.Header[key] = make([]string, len(slc))

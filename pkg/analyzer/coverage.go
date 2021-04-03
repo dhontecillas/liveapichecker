@@ -52,6 +52,10 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 	if len(bp) > 0 && bp[len(bp)-1] == '/' {
 		bp = bp[:len(bp)-1]
 	}
+	if bp == "." {
+		// if not basePath is set, it might be set to .
+		bp = "/"
+	}
 	/*
 		fmt.Printf("HOST: %s\n", specDoc.Host())
 		fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
@@ -65,7 +69,7 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 			mU := strings.ToUpper(method)
 			routePath := path.Join(bp, rePath)
 			ec := NewEndpointCoverage(mU, routePath)
-			fmt.Printf("%s %s (bp: %s , p: %s)\n", method, routePath, bp, rePath)
+			// fmt.Printf("%s %s (bp: %s , p: %s)\n", method, routePath, bp, rePath)
 			pMatcher.AddRoute(method, routePath)
 			if def.Responses != nil {
 				for v, _ := range def.Responses.StatusCodeResponses {
@@ -97,7 +101,7 @@ func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterReco
 	reqPath := path.Clean(rwr.Req.URL.Path)
 	matchedPath := cc.pathMatcher.LookupRoute(rwr.Req.Method, reqPath)
 	if matchedPath == nil {
-		fmt.Printf("No matching path for: %s\n", reqPath)
+		fmt.Printf("No matching path for: %s  %s\n", rwr.Req.Method, reqPath)
 		return
 	}
 	fmt.Printf("MATCHED %s -> %s\n", matchedPath.Str(), reqPath)

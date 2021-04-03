@@ -52,13 +52,10 @@ func (pm *PathMatcher) LookupRoute(method, pathWithParams string) *MatchedPath {
 	method = strings.ToUpper(method)
 	r, ok := pm.routers[method]
 	if !ok {
-		fmt.Printf("routers %#v\n", pm.routers)
 		return nil
 	}
 	res, params, found := r.Lookup(pathWithParams)
 	if !found {
-		fmt.Printf("Lookup NOT found: %s -> %s, %#v, %t\n%#v\n",
-			pathWithParams, res, params, found, pm.routers[method])
 		return nil
 	}
 	str, ok := res.(string)
