@@ -11,38 +11,53 @@ import (
 	"github.com/dhontecillas/liveapichecker/pkg/pathmatcher"
 	"github.com/dhontecillas/liveapichecker/pkg/proxy"
 	"github.com/go-openapi/loads"
+	"github.com/go-openapi/spec"
 )
 
 // CoverageChecker uses an openapi specdoc and checks
 // recorded api calls to keep track of what endpoints
 // have been covered
 type CoverageChecker struct {
+	rwMutex sync.RWMutex
+
 	specDoc     *loads.Document
 	pathMatcher *pathmatcher.PathMatcher
 	basePath    string
 
 	// covered is a map of path -> method -> status code -> covered
-	covered      map[string]map[string]*EndpointCoverage
-	allEndpoints []*EndpointCoverage
-	rwMutex      sync.RWMutex
+	covered map[string]map[string]*EndpointCoverage
+
+	// allEndpoints []*EndpointCoverage
+	// reportNonMatchedRequests bool
 }
 
 // EndpointCoverage contains the information about
 // how an endpoint has been covered
 type EndpointCoverage struct {
-	Method                  string       `json:"method"`
-	Path                    string       `json:"path"`
-	StatusCodes             map[int]bool `json:"statusCodes"`
-	UndocumentedStatusCodes map[int]bool `json:"undocumentedStatusCodes"`
+	Method                  string          `json:"method"`
+	Path                    string          `json:"path"`
+	StatusCodes             map[int]bool    `json:"statusCodes"`
+	UndocumentedStatusCodes map[int]bool    `json:"undocumentedStatusCodes"`
+	Params                  *ParamsCoverage `json:"params"`
 }
 
 // NewEndpointCoverage creates a new EndpontCoverage data
-func NewEndpointCoverage(method string, path string) *EndpointCoverage {
+func NewEndpointCoverage(method string, path string,
+	opSpec *spec.Operation) *EndpointCoverage {
+
+	/*
+		covVariants := NewFullCoverageMinVariants()
+		pcc, err := NewParamsCoverageChecker(method, path, opSpec, &covVariants)
+		if err != nil {
+			pc = &ParamsCoverage{}
+		}
+	*/
 	return &EndpointCoverage{
 		Method:                  method,
 		Path:                    path,
 		StatusCodes:             make(map[int]bool),
 		UndocumentedStatusCodes: make(map[int]bool),
+		Params:                  nil,
 	}
 }
 
@@ -56,10 +71,6 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 		// if not basePath is set, it might be set to .
 		bp = "/"
 	}
-	/*
-		fmt.Printf("HOST: %s\n", specDoc.Host())
-		fmt.Printf("SPEC: %#v\n", specDoc.OrigSpec())
-	*/
 
 	covered := make(map[string]map[string]*EndpointCoverage)
 	pMatcher := pathmatcher.NewPathMatcher()
@@ -68,13 +79,11 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 		for rePath, def := range mops {
 			mU := strings.ToUpper(method)
 			routePath := path.Join(bp, rePath)
-			ec := NewEndpointCoverage(mU, routePath)
-			// fmt.Printf("%s %s (bp: %s , p: %s)\n", method, routePath, bp, rePath)
+			ec := NewEndpointCoverage(mU, rePath, def)
 			pMatcher.AddRoute(method, routePath)
 			if def.Responses != nil {
-				for v, _ := range def.Responses.StatusCodeResponses {
+				for v := range def.Responses.StatusCodeResponses {
 					ec.StatusCodes[v] = false
-					// fmt.Printf("%d -> %#v\n", v, r)
 				}
 			}
 			if _, ok := covered[routePath]; !ok {
@@ -96,8 +105,6 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 // ProcessRecordedResponse implements the RecordedRresponseProcessorHandler
 // interface, and updates the stats for received request
 func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterRecorder) {
-	fmt.Printf("\nanalizing request\n")
-
 	reqPath := path.Clean(rwr.Req.URL.Path)
 	matchedPath := cc.pathMatcher.LookupRoute(rwr.Req.Method, reqPath)
 	if matchedPath == nil {

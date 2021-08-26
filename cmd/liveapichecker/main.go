@@ -29,14 +29,18 @@ func main() {
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
+	fmt.Printf("*******************************************\n")
+	fmt.Printf("* Live API Checker v0.3                   *\n")
+	fmt.Printf("*******************************************\n")
+
 	fileName := v.GetString(OpenAPIFileKey)
 	if len(fileName) == 0 {
-		panic("cannot read OPENAPI_FILE filename")
+		panic(fmt.Sprintf("cannot read %d filename", OpenAPIFileKey))
 	}
 
 	forwardTo := v.GetString(ForwardToKey)
 	if len(forwardTo) == 0 {
-		panic("cannot read forward to")
+		panic(fmt.Sprintf("cannot read forward to config %s", ForwardToKey))
 	}
 	fmt.Printf("checking %s against %s\n", fileName, forwardTo)
 
@@ -50,9 +54,15 @@ func main() {
 	var dumpCovFn func()
 	outFile := v.GetString(ReportFileKey)
 	if len(outFile) > 0 {
+		fmt.Printf("\nReport filename: %s\n", outFile)
 		dumpCovFn = func() {
+			wd, _ := os.Getwd()
+			fmt.Printf("\ndumping results to %s (%s)\n", outFile, wd)
 			covChecker.DumpResultsToFile(outFile)
 		}
+		defer dumpCovFn()
+	} else {
+		fmt.Printf("\ncannot read report file name: %s\n", ReportFileKey)
 	}
 	var reportsSrv *http.Server
 	reportsAddress := v.GetString(ReportServerAddress)
@@ -79,13 +89,18 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt)
 	<-sigChan
 
-	shutdownServer(proxySrv)
-	shutdownServer(reportsSrv)
+	fmt.Printf("*******************************************\n")
+	fmt.Printf("* STARTING SHUTDOWN                       *\n")
+	fmt.Printf("* Live API Checker v0.3                   *\n")
+	fmt.Printf("*******************************************\n")
 
-	if dumpCovFn != nil {
-		fmt.Printf("post shutdown cleanup\n")
-		dumpCovFn()
-	}
+	go shutdownServer(reportsSrv)
+	shutdownServer(proxySrv)
+
+	fmt.Printf("*******************************************\n")
+	fmt.Printf("* SHUTDOWN FINISHED                       *\n")
+	fmt.Printf("* Live API Checker v0.3                   *\n")
+	fmt.Printf("*******************************************\n")
 }
 
 func launchServer(hfn http.Handler, address string) *http.Server {
@@ -96,7 +111,7 @@ func launchServer(hfn http.Handler, address string) *http.Server {
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
 			if err == http.ErrServerClosed {
-				fmt.Printf("shutting down...\n")
+				fmt.Printf("shutting down... %#v\n", srv)
 			} else {
 				fmt.Printf("error %s\nSHUTTING DOWN", err.Error())
 			}
