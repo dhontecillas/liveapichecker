@@ -17,8 +17,7 @@ type ResponseWriterRecorder struct {
 }
 
 // NewResponseWriterRecorder creates new ResponseWriterRecorder
-func NewResponseWriterRecorder(req *http.Request,
-	onWriteFinishedChan chan<- *ResponseWriterRecorder) *ResponseWriterRecorder {
+func NewResponseWriterRecorder(req *http.Request) *ResponseWriterRecorder {
 	// clones the request, so it can fiddle with it in a separate goroutine
 	// when main processing completes
 	clonedReq := req.Clone(req.Context())

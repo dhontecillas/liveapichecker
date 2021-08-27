@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 
@@ -13,6 +14,49 @@ import (
 	"github.com/go-openapi/loads"
 	"github.com/go-openapi/spec"
 )
+
+// EndpointCoverage contains the information about
+// how an endpoint has been covered
+type EndpointCoverage struct {
+	Method                  string          `json:"method"`
+	Path                    string          `json:"path"`
+	StatusCodes             []int           `json:"statusCodes"`
+	UndocumentedStatusCodes []int           `json:"undocumentedStatusCodes"`
+	Params                  *ParamsCoverage `json:"params"`
+}
+
+type endpointCovTracker struct {
+	path                    string
+	statusCodes             map[int]bool
+	undocumentedStatusCodes map[int]bool
+	params                  *ParamsCoverageChecker
+}
+
+// newEndpointCoverage creates a new EndpointCoverage data
+func newEndpointCoverageTracker(specPath string, opSpec *spec.Operation) *endpointCovTracker {
+	covVariants := NewFullCoverageMinVariants()
+	pcc, err := NewParamsCoverageChecker(opSpec, &covVariants)
+	if err != nil {
+		pcc = &ParamsCoverageChecker{}
+	}
+	return &endpointCovTracker{
+		path:                    specPath,
+		statusCodes:             make(map[int]bool),
+		undocumentedStatusCodes: make(map[int]bool),
+		params:                  pcc,
+	}
+}
+
+// Report returns the EndpointCoverage
+func (e *endpointCovTracker) Report(method string) *EndpointCoverage {
+	return &EndpointCoverage{
+		Method:                  method,
+		Path:                    e.path,
+		StatusCodes:             intSetToSlice(e.statusCodes),
+		UndocumentedStatusCodes: intSetToSlice(e.undocumentedStatusCodes),
+		Params:                  e.params.Report(),
+	}
+}
 
 // CoverageChecker uses an openapi specdoc and checks
 // recorded api calls to keep track of what endpoints
@@ -25,40 +69,10 @@ type CoverageChecker struct {
 	basePath    string
 
 	// covered is a map of path -> method -> status code -> covered
-	covered map[string]map[string]*EndpointCoverage
+	covered map[string]map[string]*endpointCovTracker
 
 	// allEndpoints []*EndpointCoverage
 	// reportNonMatchedRequests bool
-}
-
-// EndpointCoverage contains the information about
-// how an endpoint has been covered
-type EndpointCoverage struct {
-	Method                  string          `json:"method"`
-	Path                    string          `json:"path"`
-	StatusCodes             map[int]bool    `json:"statusCodes"`
-	UndocumentedStatusCodes map[int]bool    `json:"undocumentedStatusCodes"`
-	Params                  *ParamsCoverage `json:"params"`
-}
-
-// NewEndpointCoverage creates a new EndpontCoverage data
-func NewEndpointCoverage(method string, path string,
-	opSpec *spec.Operation) *EndpointCoverage {
-
-	/*
-		covVariants := NewFullCoverageMinVariants()
-		pcc, err := NewParamsCoverageChecker(method, path, opSpec, &covVariants)
-		if err != nil {
-			pc = &ParamsCoverage{}
-		}
-	*/
-	return &EndpointCoverage{
-		Method:                  method,
-		Path:                    path,
-		StatusCodes:             make(map[int]bool),
-		UndocumentedStatusCodes: make(map[int]bool),
-		Params:                  nil,
-	}
 }
 
 // NewCoverageChecker creates a new CoverageChecker
@@ -72,22 +86,22 @@ func NewCoverageChecker(specDoc *loads.Document) *CoverageChecker {
 		bp = "/"
 	}
 
-	covered := make(map[string]map[string]*EndpointCoverage)
+	covered := make(map[string]map[string]*endpointCovTracker)
 	pMatcher := pathmatcher.NewPathMatcher()
 	ops := specDoc.Analyzer.Operations()
 	for method, mops := range ops {
-		for rePath, def := range mops {
+		for specPath, def := range mops {
 			mU := strings.ToUpper(method)
-			routePath := path.Join(bp, rePath)
-			ec := NewEndpointCoverage(mU, rePath, def)
+			routePath := path.Join(bp, specPath)
+			ec := newEndpointCoverageTracker(specPath, def)
 			pMatcher.AddRoute(method, routePath)
 			if def.Responses != nil {
 				for v := range def.Responses.StatusCodeResponses {
-					ec.StatusCodes[v] = false
+					ec.statusCodes[v] = false
 				}
 			}
 			if _, ok := covered[routePath]; !ok {
-				covered[routePath] = make(map[string]*EndpointCoverage)
+				covered[routePath] = make(map[string]*endpointCovTracker)
 			}
 			covered[routePath][mU] = ec
 		}
@@ -115,11 +129,23 @@ func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterReco
 	cc.rwMutex.Lock()
 	defer cc.rwMutex.Unlock()
 	e := cc.covered[matchedPath.Path][matchedPath.Method]
-	if _, ok := e.StatusCodes[rwr.StatusCode]; ok {
-		e.StatusCodes[rwr.StatusCode] = true
+	if _, ok := e.statusCodes[rwr.StatusCode]; ok {
+		e.statusCodes[rwr.StatusCode] = true
 	} else {
-		e.UndocumentedStatusCodes[rwr.StatusCode] = true
+		e.undocumentedStatusCodes[rwr.StatusCode] = true
 	}
+}
+
+func (cc *CoverageChecker) Report() []*EndpointCoverage {
+	cc.rwMutex.RLock()
+	eps := make([]*EndpointCoverage, len(cc.covered))
+	for method, pathMap := range cc.covered {
+		for _, covTrack := range pathMap {
+			eps = append(eps, covTrack.Report(method))
+		}
+	}
+	cc.rwMutex.RUnlock()
+	return eps
 }
 
 // DumpResultsToJsonString returns a report of the coverage as
@@ -129,14 +155,7 @@ func (cc *CoverageChecker) DumpResultsToJSONString() (string, error) {
 		Endpoints []*EndpointCoverage `json:"endpoints"`
 	}
 	var r report
-
-	cc.rwMutex.RLock()
-	for _, k := range cc.covered {
-		for _, j := range k {
-			r.Endpoints = append(r.Endpoints, j)
-		}
-	}
-	cc.rwMutex.RUnlock()
+	r.Endpoints = cc.Report()
 
 	res, err := json.Marshal(r)
 	if err != nil {
@@ -173,4 +192,16 @@ func (cc *CoverageChecker) DumpResultsToFile(fileWithPath string) {
 		return
 	}
 	f.WriteString(string(res))
+}
+
+func intSetToSlice(im map[int]bool) []int {
+	if len(im) == 0 {
+		return []int{}
+	}
+	is := make([]int, 0, len(im))
+	for k := range im {
+		is = append(is, k)
+	}
+	sort.Ints(is)
+	return is
 }
