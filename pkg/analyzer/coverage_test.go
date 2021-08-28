@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCoverage(t *testing.T) {
+func TestCoverageChecker(t *testing.T) {
 	r := require.New(t)
 	doc, err := loads.Analyzed([]byte(testSwagger), "2.0")
 	r.Nil(err, "swagger file")
 
-	req, _ := http.NewRequest("GET", "https://example.com/pets/?limit=5", nil)
+	req, _ := http.NewRequest("GET", "https://petstore.swagger.io/v1/pets/?limit=5", nil)
 	rwr := proxy.NewResponseWriterRecorder(req)
 	rwr.StatusCode = 200
 
@@ -23,16 +23,24 @@ func TestCoverage(t *testing.T) {
 	cc.ProcessRecordedResponse(rwr)
 	report := cc.Report()
 
-	r.Equal(len(report), 1, "want 1 params, got %d", len(report))
+	var getPetsEP *analyzer.EndpointCoverage = nil
+	for _, rep := range report {
+		if rep.Path == "/pets" {
+			getPetsEP = rep
+			break
+		}
+	}
 
-	/*
-		pcc.Record(req)
+	r.NotNil(getPetsEP)
 
-		report := pcc.Report()
-		r.NotNil(report)
+	nSC := len(getPetsEP.StatusCodes)
+	r.Equal(nSC, 1, "want 1 status code, got %d", nSC)
 
-		r.Equal(len(report.Params), 1, "should have covered the limit param")
-		r.Equal(report.Params[0].Name, "limit")
-		r.Equal(report.Params[0].CoveredValues[0], "5")
-	*/
+	r.NotNil(getPetsEP.Params)
+	params := getPetsEP.Params.Params
+
+	r.Equal(len(params), 1, "should have covered the limit param")
+	r.Equal(params[0].Name, "limit")
+	r.Equal(len(params[0].CoveredValues), 1, "params %#v", params)
+	r.Equal(params[0].CoveredValues[0], "5")
 }

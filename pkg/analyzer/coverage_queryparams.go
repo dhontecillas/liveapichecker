@@ -85,10 +85,10 @@ type paramValues struct {
 }
 
 type ParamsCoverageChecker struct {
-	byPlaceAndName map[string]map[string]paramValues
+	byPlaceAndName map[string]map[string]*paramValues
 }
 
-func (pcc *ParamsCoverageChecker) recordInQuery(pvals map[string]paramValues,
+func (pcc *ParamsCoverageChecker) recordInQuery(pvals map[string]*paramValues,
 	r *http.Request) {
 	if len(pvals) == 0 {
 		return
@@ -101,22 +101,22 @@ func (pcc *ParamsCoverageChecker) recordInQuery(pvals map[string]paramValues,
 	}
 }
 
-func (pcc *ParamsCoverageChecker) recordInPath(pvals map[string]paramValues,
+func (pcc *ParamsCoverageChecker) recordInPath(pvals map[string]*paramValues,
 	r *http.Request) {
 	// TODO
 }
 
-func (pcc *ParamsCoverageChecker) recordInHeader(pvals map[string]paramValues,
+func (pcc *ParamsCoverageChecker) recordInHeader(pvals map[string]*paramValues,
 	r *http.Request) {
 	// TODO
 }
 
-func (pcc *ParamsCoverageChecker) recordInBody(pvals map[string]paramValues,
+func (pcc *ParamsCoverageChecker) recordInBody(pvals map[string]*paramValues,
 	r *http.Request) {
 	// TODO
 }
 
-func (pcc *ParamsCoverageChecker) recordInForm(pvals map[string]paramValues,
+func (pcc *ParamsCoverageChecker) recordInForm(pvals map[string]*paramValues,
 	r *http.Request) {
 	// TODO
 }
@@ -169,7 +169,7 @@ func NewParamsCoverageChecker(opSpec *spec.Operation,
 	}
 
 	pcc := &ParamsCoverageChecker{
-		byPlaceAndName: make(map[string]map[string]paramValues),
+		byPlaceAndName: make(map[string]map[string]*paramValues),
 	}
 
 	for _, param := range opSpec.Parameters {
@@ -180,9 +180,9 @@ func NewParamsCoverageChecker(opSpec *spec.Operation,
 			minCovVariants = covVariants.MinVariantsFor(param.In)
 		}
 		if _, ok := pcc.byPlaceAndName[param.In]; !ok {
-			pcc.byPlaceAndName[param.In] = make(map[string]paramValues)
+			pcc.byPlaceAndName[param.In] = make(map[string]*paramValues)
 		}
-		pcc.byPlaceAndName[param.In][param.Name] = paramValues{
+		pcc.byPlaceAndName[param.In][param.Name] = &paramValues{
 			coveredSet:   make(map[string]bool),
 			minVariants:  minCovVariants,
 			emptyAllowed: !param.Required,

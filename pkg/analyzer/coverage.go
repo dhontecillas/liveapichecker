@@ -134,14 +134,15 @@ func (cc *CoverageChecker) ProcessRecordedResponse(rwr *proxy.ResponseWriterReco
 	} else {
 		e.undocumentedStatusCodes[rwr.StatusCode] = true
 	}
+	e.params.Record(rwr.Req)
 }
 
 func (cc *CoverageChecker) Report() []*EndpointCoverage {
 	cc.rwMutex.RLock()
-	eps := make([]*EndpointCoverage, len(cc.covered))
+	eps := make([]*EndpointCoverage, 0, len(cc.covered))
 	for method, pathMap := range cc.covered {
-		for _, covTrack := range pathMap {
-			eps = append(eps, covTrack.Report(method))
+		for path := range pathMap {
+			eps = append(eps, pathMap[path].Report(method))
 		}
 	}
 	cc.rwMutex.RUnlock()
