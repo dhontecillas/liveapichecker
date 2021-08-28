@@ -10,4 +10,5 @@ require (
 	github.com/go-openapi/spec v0.19.14
 	github.com/go-openapi/strfmt v0.19.11
 	github.com/spf13/viper v1.7.1
+	github.com/stretchr/testify v1.7.0 // indirect
 )

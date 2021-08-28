@@ -14,10 +14,9 @@ type RecordedResponseProcessorHandler interface {
 // ParallelHandler implements an http.Handler middleware
 // that wraps another http.Handler and a provided
 type ParallelHandler struct {
-	handler             http.Handler
-	parallelProcRunning bool
-	parallelProc        chan *ResponseWriterRecorder
-	respProcessor       RecordedResponseProcessorHandler
+	handler       http.Handler
+	parallelProc  chan *ResponseWriterRecorder
+	respProcessor RecordedResponseProcessorHandler
 }
 
 // NewParallelHandler creaete
@@ -35,7 +34,7 @@ func NewParallelHandler(h http.Handler,
 // uses the original response writer as the primary one.
 // Once served, the recorder is sent to the paraller processor.
 func (p *ParallelHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	recRW := NewResponseWriterRecorder(req, p.parallelProc)
+	recRW := NewResponseWriterRecorder(req)
 	dupRW := NewDupResponseWriter(rw, recRW)
 	p.handler.ServeHTTP(dupRW, req)
 
@@ -58,6 +57,7 @@ func (p *ParallelHandler) LaunchParallelProc() {
 			select {
 			case r := <-p.parallelProc:
 				p.respProcessor.ProcessRecordedResponse(r)
+				// TODO: put here the signal to shutdown the parallelProc goroutine
 			}
 		}
 	}()
